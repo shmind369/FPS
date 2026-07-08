@@ -79,20 +79,55 @@ const torsoGeo = new THREE.BoxGeometry(0.5, 0.55, 0.25);
 const armGeo = new THREE.BoxGeometry(0.14, 0.5, 0.14);
 const headGeo = new THREE.SphereGeometry(0.15, 12, 10);
 
-function createHumanoidMeshes(material) {
-  const parts = [
-    { geo: legGeo, pos: [-0.11, 0.4, 0] },
-    { geo: legGeo, pos: [0.11, 0.4, 0] },
-    { geo: torsoGeo, pos: [0, 1.075, 0] },
-    { geo: armGeo, pos: [-0.37, 1.1, 0] },
-    { geo: armGeo, pos: [0.37, 1.1, 0] },
-    { geo: headGeo, pos: [0, 1.5, 0] },
-  ];
-  return parts.map(({ geo, pos }) => {
+// 脚・腕は股関節/肩を支点にしたピボットグループに入れ、歩行時に前後へ振れるようにする
+function createHumanoid(material) {
+  function limbPivot(geo, pivotY, meshY) {
+    const pivot = new THREE.Group();
+    pivot.position.set(0, pivotY, 0);
     const mesh = new THREE.Mesh(geo, material);
-    mesh.position.set(pos[0], pos[1], pos[2]);
-    return mesh;
-  });
+    mesh.position.y = meshY;
+    pivot.add(mesh);
+    return { pivot, mesh };
+  }
+
+  const leftLeg = limbPivot(legGeo, 0.8, -0.4);
+  leftLeg.pivot.position.x = -0.11;
+  const rightLeg = limbPivot(legGeo, 0.8, -0.4);
+  rightLeg.pivot.position.x = 0.11;
+
+  const leftArm = limbPivot(armGeo, 1.35, -0.25);
+  leftArm.pivot.position.x = -0.37;
+  const rightArm = limbPivot(armGeo, 1.35, -0.25);
+  rightArm.pivot.position.x = 0.37;
+
+  const torsoMesh = new THREE.Mesh(torsoGeo, material);
+  torsoMesh.position.set(0, 1.075, 0);
+
+  const headMesh = new THREE.Mesh(headGeo, material);
+  headMesh.position.set(0, 1.5, 0);
+
+  return {
+    parts: [
+      leftLeg.pivot,
+      rightLeg.pivot,
+      leftArm.pivot,
+      rightArm.pivot,
+      torsoMesh,
+      headMesh,
+    ],
+    meshes: [
+      leftLeg.mesh,
+      rightLeg.mesh,
+      leftArm.mesh,
+      rightArm.mesh,
+      torsoMesh,
+      headMesh,
+    ],
+    legPivotL: leftLeg.pivot,
+    legPivotR: rightLeg.pivot,
+    armPivotL: leftArm.pivot,
+    armPivotR: rightArm.pivot,
+  };
 }
 
 const TARGET_COUNT = 8;
@@ -112,6 +147,13 @@ const KNOCK_IMPULSE_MIN_MULT = 0.3; // 根本付近に当たった時の倍率
 const KNOCK_IMPULSE_MAX_MULT = 2.0; // 先端付近に当たった時の倍率
 const KNOCK_MAX = 0.6; // ノックバックで動く最大距離
 
+const ENEMY_SPEED = 1.4; // プレイヤーへ近づく速度 (m/s)
+const ENEMY_STOP_DISTANCE = 2.2; // これ以上近づかない距離
+const WALK_STRIDE_FREQUENCY = 7; // 歩行アニメーションの速さ
+const WALK_AMPLITUDE = 0.5; // 手脚の振り角(ラジアン)
+const WALK_ENVELOPE_RATE = 6; // 歩行振幅のフェードイン/アウトの速さ
+const UP_AXIS = new THREE.Vector3(0, 1, 0);
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -129,13 +171,20 @@ for (let i = 0; i < TARGET_COUNT; i++) {
   scene.add(group);
 
   const material = targetMat.clone();
-  const meshes = createHumanoidMeshes(material);
-  for (const mesh of meshes) group.add(mesh);
+  const humanoid = createHumanoid(material);
+  for (const part of humanoid.parts) group.add(part);
 
   const target = {
     group,
-    meshes,
+    meshes: humanoid.meshes,
+    legPivotL: humanoid.legPivotL,
+    legPivotR: humanoid.legPivotR,
+    armPivotL: humanoid.armPivotL,
+    armPivotR: humanoid.armPivotR,
     basePosition,
+    heading: 0,
+    walkPhase: Math.random() * Math.PI * 2, // 的ごとに歩行タイミングをずらす
+    walkEnvelope: 0,
     tiltAngle: 0,
     tiltVelocity: 0,
     tiltAxis: new THREE.Vector3(1, 0, 0),
@@ -143,7 +192,7 @@ for (let i = 0; i < TARGET_COUNT; i++) {
     knockVelocity: 0,
     knockDir: new THREE.Vector3(0, 0, 1),
   };
-  for (const mesh of meshes) mesh.userData.owner = target;
+  for (const mesh of humanoid.meshes) mesh.userData.owner = target;
   targets.push(target);
 }
 
@@ -175,21 +224,55 @@ function hitTarget(target, hitPoint) {
   updateScoreHUD();
 }
 
+const tmpToPlayer = new THREE.Vector3();
+const tmpHeadingQuat = new THREE.Quaternion();
+const tmpTiltQuat = new THREE.Quaternion();
+
 function updateTargets(dt) {
   for (const t of targets) {
+    // プレイヤーへ向かって歩く
+    tmpToPlayer.subVectors(player.position, t.basePosition).setY(0);
+    const dist = tmpToPlayer.length();
+    const isMoving = dist > ENEMY_STOP_DISTANCE;
+    if (dist > 0.0001) {
+      const dirX = tmpToPlayer.x / dist;
+      const dirZ = tmpToPlayer.z / dist;
+      t.heading = Math.atan2(dirX, dirZ);
+      if (isMoving) {
+        const step = Math.min(ENEMY_SPEED * dt, dist - ENEMY_STOP_DISTANCE);
+        t.basePosition.x += dirX * step;
+        t.basePosition.z += dirZ * step;
+      }
+    }
+
+    // 歩行アニメーション(フェードイン/アウトしながら脚・腕を振る)
+    t.walkEnvelope +=
+      ((isMoving ? 1 : 0) - t.walkEnvelope) * Math.min(1, dt * WALK_ENVELOPE_RATE);
+    if (isMoving) t.walkPhase += dt * WALK_STRIDE_FREQUENCY;
+    const swing = WALK_AMPLITUDE * Math.sin(t.walkPhase) * t.walkEnvelope;
+    t.legPivotL.rotation.x = swing;
+    t.legPivotR.rotation.x = -swing;
+    t.armPivotL.rotation.x = -swing;
+    t.armPivotR.rotation.x = swing;
+
+    // 起き上がり小法師のような傾き
     const angularAccel =
       -TILT_STIFFNESS * t.tiltAngle - TILT_DAMPING * t.tiltVelocity;
     t.tiltVelocity += angularAccel * dt;
     t.tiltAngle += t.tiltVelocity * dt;
     t.tiltAngle = clamp(t.tiltAngle, -TILT_MAX, TILT_MAX);
 
+    // ノックバック
     const knockAccel =
       -KNOCK_STIFFNESS * t.knockOffset - KNOCK_DAMPING * t.knockVelocity;
     t.knockVelocity += knockAccel * dt;
     t.knockOffset += t.knockVelocity * dt;
     t.knockOffset = clamp(t.knockOffset, -KNOCK_MAX, KNOCK_MAX);
 
-    t.group.quaternion.setFromAxisAngle(t.tiltAxis, t.tiltAngle);
+    // 進行方向を向いた上で、被弾による傾きをワールド空間で重ねる
+    tmpHeadingQuat.setFromAxisAngle(UP_AXIS, t.heading);
+    tmpTiltQuat.setFromAxisAngle(t.tiltAxis, t.tiltAngle);
+    t.group.quaternion.copy(tmpTiltQuat).multiply(tmpHeadingQuat);
     t.group.position
       .copy(t.basePosition)
       .addScaledVector(t.knockDir, t.knockOffset);
