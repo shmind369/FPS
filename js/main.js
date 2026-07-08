@@ -69,7 +69,7 @@ addObstacle(9, -8, 2, 6, 2.2);
 const halfArena = ARENA_SIZE / 2 - 1;
 
 // ---------- Targets (enemies) ----------
-const targetGeo = new THREE.SphereGeometry(0.5, 16, 16);
+const targetGeo = new THREE.BoxGeometry(0.7, 1.3, 0.3);
 const targetMatAlive = new THREE.MeshStandardMaterial({ color: 0xdd2222 });
 const targetMatHit = new THREE.MeshStandardMaterial({ color: 0x333333 });
 
@@ -280,9 +280,9 @@ function updateMovement(dt) {
   if (len < 0.001) return;
 
   const forward = new THREE.Vector3(
-    Math.sin(player.yaw),
+    -Math.sin(player.yaw),
     0,
-    Math.cos(player.yaw)
+    -Math.cos(player.yaw)
   );
   const right = new THREE.Vector3(
     Math.sin(player.yaw + Math.PI / 2),
