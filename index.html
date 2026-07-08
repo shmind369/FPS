@@ -1,1 +1,37 @@
 <!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>Mobile FPS Prototype</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div id="score">SCORE: 0</div>
+  <div id="crosshair"></div>
+  <div id="hint">タップしてスタート / 左:移動 右:視点</div>
+</div>
+
+<div id="controls">
+  <div id="joystickZone" class="touchZone">
+    <div id="joystickBase">
+      <div id="joystickKnob"></div>
+    </div>
+  </div>
+  <div id="lookZone" class="touchZone"></div>
+  <button id="fireButton">FIRE</button>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./js/vendor/three.module.js"
+  }
+}
+</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
