@@ -79,7 +79,9 @@ const targets = [];
 
 const TILT_STIFFNESS = 60; // 直立に戻ろうとするバネの強さ
 const TILT_DAMPING = 6; // 揺れを減衰させる強さ
-const TILT_IMPULSE = 6; // 被弾時に加える角速度
+const TILT_IMPULSE = 6; // 被弾時に加える角速度(根本に当たった場合の基準値)
+const TILT_IMPULSE_MIN_MULT = 0.3; // 根本付近に当たった時の倍率
+const TILT_IMPULSE_MAX_MULT = 2.2; // 先端付近に当たった時の倍率
 const TILT_MAX = Math.PI * 0.42; // 倒れすぎて地面にめり込まないための角度制限
 
 function randomTargetPosition() {
@@ -104,7 +106,7 @@ for (let i = 0; i < TARGET_COUNT; i++) {
   });
 }
 
-function hitTarget(target) {
+function hitTarget(target, hitPoint) {
   // 撃たれた向きと逆方向に倒れるよう、プレイヤーから的への水平方向を軸にする
   const away = new THREE.Vector3()
     .subVectors(target.group.position, player.position)
@@ -112,7 +114,14 @@ function hitTarget(target) {
   if (away.lengthSq() < 0.0001) away.set(0, 0, 1);
   away.normalize();
   target.tiltAxis.set(away.z, 0, -away.x);
-  target.tiltVelocity += TILT_IMPULSE;
+
+  // 根本(支点)からの高さが大きいほど、テコの原理で強くのけ反る
+  const localHeight = target.group.worldToLocal(hitPoint.clone()).y;
+  const heightFraction = Math.max(0, Math.min(1, localHeight / TARGET_HEIGHT));
+  const impulseMult =
+    TILT_IMPULSE_MIN_MULT +
+    (TILT_IMPULSE_MAX_MULT - TILT_IMPULSE_MIN_MULT) * heightFraction;
+  target.tiltVelocity += TILT_IMPULSE * impulseMult;
 
   score += 1;
   updateScoreHUD();
@@ -250,7 +259,7 @@ function shoot() {
   if (hits.length > 0) {
     const hitMesh = hits[0].object;
     const target = targets.find((t) => t.mesh === hitMesh);
-    if (target) hitTarget(target);
+    if (target) hitTarget(target, hits[0].point);
   }
   hideHint();
 }
