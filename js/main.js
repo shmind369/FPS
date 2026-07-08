@@ -69,45 +69,63 @@ addObstacle(9, -8, 2, 6, 2.2);
 const halfArena = ARENA_SIZE / 2 - 1;
 
 // ---------- Targets (enemies) ----------
-const targetGeo = new THREE.BoxGeometry(0.7, 1.3, 0.3);
-const targetMatAlive = new THREE.MeshStandardMaterial({ color: 0xdd2222 });
-const targetMatHit = new THREE.MeshStandardMaterial({ color: 0x333333 });
+// 根本(地面)を軸にして倒れ、起き上がり小法師のようにバネで直立に戻る的
+const TARGET_HEIGHT = 1.3;
+const targetGeo = new THREE.BoxGeometry(0.7, TARGET_HEIGHT, 0.3);
+const targetMat = new THREE.MeshStandardMaterial({ color: 0xdd2222 });
 
 const TARGET_COUNT = 8;
 const targets = [];
 
+const TILT_STIFFNESS = 60; // 直立に戻ろうとするバネの強さ
+const TILT_DAMPING = 6; // 揺れを減衰させる強さ
+const TILT_IMPULSE = 6; // 被弾時に加える角速度
+const TILT_MAX = Math.PI * 0.42; // 倒れすぎて地面にめり込まないための角度制限
+
 function randomTargetPosition() {
   const x = (Math.random() - 0.5) * (ARENA_SIZE - 6);
   const z = (Math.random() - 0.5) * (ARENA_SIZE - 6);
-  return new THREE.Vector3(x, 1 + Math.random() * 1.2, z);
+  return new THREE.Vector3(x, 0, z);
 }
 
 for (let i = 0; i < TARGET_COUNT; i++) {
-  const mesh = new THREE.Mesh(targetGeo, targetMatAlive.clone());
-  mesh.position.copy(randomTargetPosition());
-  scene.add(mesh);
-  targets.push({ mesh, alive: true, respawnAt: 0 });
+  const group = new THREE.Group();
+  group.position.copy(randomTargetPosition());
+  const mesh = new THREE.Mesh(targetGeo, targetMat.clone());
+  mesh.position.y = TARGET_HEIGHT / 2;
+  group.add(mesh);
+  scene.add(group);
+  targets.push({
+    group,
+    mesh,
+    tiltAngle: 0,
+    tiltVelocity: 0,
+    tiltAxis: new THREE.Vector3(1, 0, 0),
+  });
 }
 
 function hitTarget(target) {
-  target.alive = false;
-  target.mesh.material.color.set(0x333333);
-  target.mesh.scale.setScalar(0.001);
-  target.respawnAt = performance.now() + 1500;
+  // 撃たれた向きと逆方向に倒れるよう、プレイヤーから的への水平方向を軸にする
+  const away = new THREE.Vector3()
+    .subVectors(target.group.position, player.position)
+    .setY(0);
+  if (away.lengthSq() < 0.0001) away.set(0, 0, 1);
+  away.normalize();
+  target.tiltAxis.set(away.z, 0, -away.x);
+  target.tiltVelocity += TILT_IMPULSE;
+
   score += 1;
   updateScoreHUD();
 }
 
-function updateTargets(now) {
+function updateTargets(dt) {
   for (const t of targets) {
-    if (!t.alive && now >= t.respawnAt) {
-      t.mesh.position.copy(randomTargetPosition());
-      t.mesh.scale.setScalar(1);
-      t.mesh.material.color.set(0xdd2222);
-      t.alive = true;
-    } else if (t.alive) {
-      t.mesh.rotation.y += 0.01;
-    }
+    const angularAccel =
+      -TILT_STIFFNESS * t.tiltAngle - TILT_DAMPING * t.tiltVelocity;
+    t.tiltVelocity += angularAccel * dt;
+    t.tiltAngle += t.tiltVelocity * dt;
+    t.tiltAngle = Math.max(-TILT_MAX, Math.min(TILT_MAX, t.tiltAngle));
+    t.group.quaternion.setFromAxisAngle(t.tiltAxis, t.tiltAngle);
   }
 }
 
@@ -228,8 +246,7 @@ const center = new THREE.Vector2(0, 0);
 
 function shoot() {
   raycaster.setFromCamera(center, camera);
-  const aliveMeshes = targets.filter((t) => t.alive).map((t) => t.mesh);
-  const hits = raycaster.intersectObjects(aliveMeshes);
+  const hits = raycaster.intersectObjects(targets.map((t) => t.mesh));
   if (hits.length > 0) {
     const hitMesh = hits[0].object;
     const target = targets.find((t) => t.mesh === hitMesh);
@@ -324,7 +341,7 @@ function tick(now) {
 
   updateMovement(dt);
   updateCamera();
-  updateTargets(now);
+  updateTargets(dt);
 
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
