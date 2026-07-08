@@ -69,10 +69,31 @@ addObstacle(9, -8, 2, 6, 2.2);
 const halfArena = ARENA_SIZE / 2 - 1;
 
 // ---------- Targets (enemies) ----------
-// 根本(地面)を軸にして倒れ、起き上がり小法師のようにバネで直立に戻る的
-const TARGET_HEIGHT = 1.3;
-const targetGeo = new THREE.BoxGeometry(0.7, TARGET_HEIGHT, 0.3);
+// 根本(地面)を軸にして倒れ、起き上がり小法師のようにバネで直立に戻る人型の的
+const TARGET_HEIGHT = 1.6; // 頭頂までのおおよその高さ(当たり判定の高さ正規化に使用)
 const targetMat = new THREE.MeshStandardMaterial({ color: 0xdd2222 });
+
+// 人型を構成する共有ジオメトリ(脚・胴・腕・頭)
+const legGeo = new THREE.BoxGeometry(0.16, 0.8, 0.16);
+const torsoGeo = new THREE.BoxGeometry(0.5, 0.55, 0.25);
+const armGeo = new THREE.BoxGeometry(0.14, 0.5, 0.14);
+const headGeo = new THREE.SphereGeometry(0.15, 12, 10);
+
+function createHumanoidMeshes(material) {
+  const parts = [
+    { geo: legGeo, pos: [-0.11, 0.4, 0] },
+    { geo: legGeo, pos: [0.11, 0.4, 0] },
+    { geo: torsoGeo, pos: [0, 1.075, 0] },
+    { geo: armGeo, pos: [-0.37, 1.1, 0] },
+    { geo: armGeo, pos: [0.37, 1.1, 0] },
+    { geo: headGeo, pos: [0, 1.5, 0] },
+  ];
+  return parts.map(({ geo, pos }) => {
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.position.set(pos[0], pos[1], pos[2]);
+    return mesh;
+  });
+}
 
 const TARGET_COUNT = 8;
 const targets = [];
@@ -84,6 +105,17 @@ const TILT_IMPULSE_MIN_MULT = 0.3; // 根本付近に当たった時の倍率
 const TILT_IMPULSE_MAX_MULT = 2.2; // 先端付近に当たった時の倍率
 const TILT_MAX = Math.PI * 0.42; // 倒れすぎて地面にめり込まないための角度制限
 
+const KNOCK_STIFFNESS = 40; // 元の位置に戻ろうとするバネの強さ
+const KNOCK_DAMPING = 12; // ノックバックを減衰させる強さ
+const KNOCK_IMPULSE = 2.5; // 被弾時に加えるノックバック速度(根本基準値)
+const KNOCK_IMPULSE_MIN_MULT = 0.3; // 根本付近に当たった時の倍率
+const KNOCK_IMPULSE_MAX_MULT = 2.0; // 先端付近に当たった時の倍率
+const KNOCK_MAX = 0.6; // ノックバックで動く最大距離
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 function randomTargetPosition() {
   const x = (Math.random() - 0.5) * (ARENA_SIZE - 6);
   const z = (Math.random() - 0.5) * (ARENA_SIZE - 6);
@@ -91,37 +123,53 @@ function randomTargetPosition() {
 }
 
 for (let i = 0; i < TARGET_COUNT; i++) {
+  const basePosition = randomTargetPosition();
   const group = new THREE.Group();
-  group.position.copy(randomTargetPosition());
-  const mesh = new THREE.Mesh(targetGeo, targetMat.clone());
-  mesh.position.y = TARGET_HEIGHT / 2;
-  group.add(mesh);
+  group.position.copy(basePosition);
   scene.add(group);
-  targets.push({
+
+  const material = targetMat.clone();
+  const meshes = createHumanoidMeshes(material);
+  for (const mesh of meshes) group.add(mesh);
+
+  const target = {
     group,
-    mesh,
+    meshes,
+    basePosition,
     tiltAngle: 0,
     tiltVelocity: 0,
     tiltAxis: new THREE.Vector3(1, 0, 0),
-  });
+    knockOffset: 0,
+    knockVelocity: 0,
+    knockDir: new THREE.Vector3(0, 0, 1),
+  };
+  for (const mesh of meshes) mesh.userData.owner = target;
+  targets.push(target);
 }
 
 function hitTarget(target, hitPoint) {
-  // 撃たれた向きと逆方向に倒れるよう、プレイヤーから的への水平方向を軸にする
+  // 撃たれた向きと逆方向に倒れる・ノックバックするよう、プレイヤーから的への水平方向を使う
   const away = new THREE.Vector3()
     .subVectors(target.group.position, player.position)
     .setY(0);
   if (away.lengthSq() < 0.0001) away.set(0, 0, 1);
   away.normalize();
   target.tiltAxis.set(away.z, 0, -away.x);
+  target.knockDir.copy(away);
 
-  // 根本(支点)からの高さが大きいほど、テコの原理で強くのけ反る
+  // 根本(支点)からの高さが大きいほど、テコの原理でのけ反り・ノックバックが強くなる
   const localHeight = target.group.worldToLocal(hitPoint.clone()).y;
-  const heightFraction = Math.max(0, Math.min(1, localHeight / TARGET_HEIGHT));
-  const impulseMult =
+  const heightFraction = clamp(localHeight / TARGET_HEIGHT, 0, 1);
+
+  const tiltMult =
     TILT_IMPULSE_MIN_MULT +
     (TILT_IMPULSE_MAX_MULT - TILT_IMPULSE_MIN_MULT) * heightFraction;
-  target.tiltVelocity += TILT_IMPULSE * impulseMult;
+  target.tiltVelocity += TILT_IMPULSE * tiltMult;
+
+  const knockMult =
+    KNOCK_IMPULSE_MIN_MULT +
+    (KNOCK_IMPULSE_MAX_MULT - KNOCK_IMPULSE_MIN_MULT) * heightFraction;
+  target.knockVelocity += KNOCK_IMPULSE * knockMult;
 
   score += 1;
   updateScoreHUD();
@@ -133,8 +181,18 @@ function updateTargets(dt) {
       -TILT_STIFFNESS * t.tiltAngle - TILT_DAMPING * t.tiltVelocity;
     t.tiltVelocity += angularAccel * dt;
     t.tiltAngle += t.tiltVelocity * dt;
-    t.tiltAngle = Math.max(-TILT_MAX, Math.min(TILT_MAX, t.tiltAngle));
+    t.tiltAngle = clamp(t.tiltAngle, -TILT_MAX, TILT_MAX);
+
+    const knockAccel =
+      -KNOCK_STIFFNESS * t.knockOffset - KNOCK_DAMPING * t.knockVelocity;
+    t.knockVelocity += knockAccel * dt;
+    t.knockOffset += t.knockVelocity * dt;
+    t.knockOffset = clamp(t.knockOffset, -KNOCK_MAX, KNOCK_MAX);
+
     t.group.quaternion.setFromAxisAngle(t.tiltAxis, t.tiltAngle);
+    t.group.position
+      .copy(t.basePosition)
+      .addScaledVector(t.knockDir, t.knockOffset);
   }
 }
 
@@ -255,10 +313,10 @@ const center = new THREE.Vector2(0, 0);
 
 function shoot() {
   raycaster.setFromCamera(center, camera);
-  const hits = raycaster.intersectObjects(targets.map((t) => t.mesh));
+  const allMeshes = targets.flatMap((t) => t.meshes);
+  const hits = raycaster.intersectObjects(allMeshes);
   if (hits.length > 0) {
-    const hitMesh = hits[0].object;
-    const target = targets.find((t) => t.mesh === hitMesh);
+    const target = hits[0].object.userData.owner;
     if (target) hitTarget(target, hits[0].point);
   }
   hideHint();
