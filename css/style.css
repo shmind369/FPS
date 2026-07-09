@@ -147,7 +147,13 @@ html, body {
   pointer-events: auto;
   z-index: 30;
   touch-action: none;
+  -webkit-touch-callout: none;
   -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#fireButton * {
+  pointer-events: none;
 }
 #fireButton:active {
   background: rgba(220, 40, 40, 0.85);
