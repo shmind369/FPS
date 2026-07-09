@@ -3,6 +3,7 @@
   padding: 0;
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -114,6 +115,7 @@ html, body {
   border-radius: 50%;
   background: rgba(255,255,255,0.12);
   border: 2px solid rgba(255,255,255,0.35);
+  touch-action: none;
 }
 
 #joystickKnob {
@@ -126,6 +128,7 @@ html, body {
   border-radius: 50%;
   background: rgba(255,255,255,0.55);
   transition: transform 0.05s linear;
+  touch-action: none;
 }
 
 #fireButton {
@@ -143,6 +146,8 @@ html, body {
   letter-spacing: 1px;
   pointer-events: auto;
   z-index: 30;
+  touch-action: none;
+  -webkit-user-select: none;
 }
 #fireButton:active {
   background: rgba(220, 40, 40, 0.85);

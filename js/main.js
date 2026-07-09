@@ -138,7 +138,7 @@ const TILT_DAMPING = 6; // 揺れを減衰させる強さ
 const TILT_IMPULSE = 6; // 被弾時に加える角速度(根本に当たった場合の基準値)
 const TILT_IMPULSE_MIN_MULT = 0.3; // 根本付近に当たった時の倍率
 const TILT_IMPULSE_MAX_MULT = 2.2; // 先端付近に当たった時の倍率
-const TILT_MAX = Math.PI * 0.42; // 倒れすぎて地面にめり込まないための角度制限
+const TILT_MAX = Math.PI * 0.46; // 通常の傾き上限、かつ完全転倒時に倒れきる角度
 
 const KNOCK_STIFFNESS = 40; // 元の位置に戻ろうとするバネの強さ
 const KNOCK_DAMPING = 12; // ノックバックを減衰させる強さ
@@ -153,6 +153,10 @@ const WALK_STRIDE_FREQUENCY = 7; // 歩行アニメーションの速さ
 const WALK_AMPLITUDE = 0.5; // 手脚の振り角(ラジアン)
 const WALK_ENVELOPE_RATE = 6; // 歩行振幅のフェードイン/アウトの速さ
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
+
+const KNEE_HEIGHT = 0.4; // 膝のおおよその高さ。これ以下に当たると完全に転倒する
+const KNOCKDOWN_DURATION = 2.5; // 転倒してから起き上がり始めるまでの秒数
+const KNOCKDOWN_FALL_RATE = 10; // 転倒時に倒れきるまでの速さ
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -191,6 +195,8 @@ for (let i = 0; i < TARGET_COUNT; i++) {
     knockOffset: 0,
     knockVelocity: 0,
     knockDir: new THREE.Vector3(0, 0, 1),
+    downed: false,
+    downTimer: 0,
   };
   for (const mesh of humanoid.meshes) mesh.userData.owner = target;
   targets.push(target);
@@ -210,10 +216,16 @@ function hitTarget(target, hitPoint) {
   const localHeight = target.group.worldToLocal(hitPoint.clone()).y;
   const heightFraction = clamp(localHeight / TARGET_HEIGHT, 0, 1);
 
-  const tiltMult =
-    TILT_IMPULSE_MIN_MULT +
-    (TILT_IMPULSE_MAX_MULT - TILT_IMPULSE_MIN_MULT) * heightFraction;
-  target.tiltVelocity += TILT_IMPULSE * tiltMult;
+  if (localHeight <= KNEE_HEIGHT) {
+    // 膝から下に当たった場合は足払いのように完全に転倒させる
+    target.downed = true;
+    target.downTimer = KNOCKDOWN_DURATION;
+  } else {
+    const tiltMult =
+      TILT_IMPULSE_MIN_MULT +
+      (TILT_IMPULSE_MAX_MULT - TILT_IMPULSE_MIN_MULT) * heightFraction;
+    target.tiltVelocity += TILT_IMPULSE * tiltMult;
+  }
 
   const knockMult =
     KNOCK_IMPULSE_MIN_MULT +
@@ -233,7 +245,7 @@ function updateTargets(dt) {
     // プレイヤーへ向かって歩く
     tmpToPlayer.subVectors(player.position, t.basePosition).setY(0);
     const dist = tmpToPlayer.length();
-    const isMoving = dist > ENEMY_STOP_DISTANCE;
+    const isMoving = dist > ENEMY_STOP_DISTANCE && !t.downed;
     if (dist > 0.0001) {
       const dirX = tmpToPlayer.x / dist;
       const dirZ = tmpToPlayer.z / dist;
@@ -255,12 +267,20 @@ function updateTargets(dt) {
     t.armPivotL.rotation.x = -swing;
     t.armPivotR.rotation.x = swing;
 
-    // 起き上がり小法師のような傾き
-    const angularAccel =
-      -TILT_STIFFNESS * t.tiltAngle - TILT_DAMPING * t.tiltVelocity;
-    t.tiltVelocity += angularAccel * dt;
-    t.tiltAngle += t.tiltVelocity * dt;
-    t.tiltAngle = clamp(t.tiltAngle, -TILT_MAX, TILT_MAX);
+    // 転倒中は素早く倒れきり、時間経過後にバネへ戻して起き上がらせる
+    if (t.downed) {
+      t.downTimer -= dt;
+      t.tiltAngle += (TILT_MAX - t.tiltAngle) * Math.min(1, dt * KNOCKDOWN_FALL_RATE);
+      t.tiltVelocity = 0;
+      if (t.downTimer <= 0) t.downed = false;
+    } else {
+      // 起き上がり小法師のような傾き
+      const angularAccel =
+        -TILT_STIFFNESS * t.tiltAngle - TILT_DAMPING * t.tiltVelocity;
+      t.tiltVelocity += angularAccel * dt;
+      t.tiltAngle += t.tiltVelocity * dt;
+      t.tiltAngle = clamp(t.tiltAngle, -TILT_MAX, TILT_MAX);
+    }
 
     // ノックバック
     const knockAccel =
