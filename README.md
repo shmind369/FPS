@@ -2,6 +2,10 @@
 
 スマートフォンのブラウザで遊べるFPSプロトタイプです。Three.js製で、ビルド不要・単純なHTTPサーバーで動作します。
 
+## プレイ用URL
+
+https://shmind369.github.io/FPS/
+
 ## 遊び方
 
 ```sh
