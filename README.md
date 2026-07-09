@@ -25,3 +25,7 @@ python3 -m http.server 8080
 - `css/style.css`: HUD・仮想スティック等のスタイル
 - `js/main.js`: Three.jsによるシーン構築、移動/視点/射撃ロジック
 - `js/vendor/three.module.js`: three.js本体(CDN不要でオフラインでも動作するように同梱)
+
+## 操作対策メモ
+
+タッチ操作ボタン(FIREボタン等)は `touch-action: none` を指定し、iOS Safariの連続タップによるズーム表示を防いでいます。
