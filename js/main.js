@@ -442,6 +442,15 @@ function shoot() {
 }
 
 const fireButton = document.getElementById("fireButton");
+// iOSのテキスト選択用ルーペ(長押し拡大表示)がボタン上で発生しないよう、
+// touchstartの時点で確実にpreventDefaultする
+fireButton.addEventListener(
+  "touchstart",
+  (e) => {
+    e.preventDefault();
+  },
+  { passive: false }
+);
 fireButton.addEventListener("pointerdown", (e) => {
   e.preventDefault();
   shoot();
