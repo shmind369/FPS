@@ -1,5 +1,21 @@
 import * as THREE from "three";
 
+// ---------- iOS Safariのダブルタップズーム対策 ----------
+// touch-actionだけでは抑止しきれないため、素早い連続タップの2回目のtouchendを
+// preventDefaultしてズームジェスチャーの発生を防ぐ
+let lastTouchEnd = 0;
+document.addEventListener(
+  "touchend",
+  (e) => {
+    const now = Date.now();
+    if (now - lastTouchEnd <= 350) {
+      e.preventDefault();
+    }
+    lastTouchEnd = now;
+  },
+  { passive: false }
+);
+
 // ---------- Basic scene setup ----------
 const canvas = document.getElementById("game");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
