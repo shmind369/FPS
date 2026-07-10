@@ -17,10 +17,27 @@ document.addEventListener(
 );
 
 // ---------- Basic scene setup ----------
+// 画面サイズを6.1インチ相当(iPhone 13/14と同じ論理解像度)に固定し、
+// 実機の画面サイズが違っても#viewportをscale()で相似形のまま収める
+const DESIGN_WIDTH = 390;
+const DESIGN_HEIGHT = 844;
+
+const viewportEl = document.getElementById("viewport");
+let viewportScale = 1;
+function fitViewport() {
+  viewportScale = Math.min(
+    window.innerWidth / DESIGN_WIDTH,
+    window.innerHeight / DESIGN_HEIGHT
+  );
+  viewportEl.style.transform = `scale(${viewportScale})`;
+}
+fitViewport();
+window.addEventListener("resize", fitViewport);
+
 const canvas = document.getElementById("game");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setSize(DESIGN_WIDTH, DESIGN_HEIGHT);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
@@ -28,7 +45,7 @@ scene.fog = new THREE.Fog(0x87ceeb, 20, 90);
 
 const camera = new THREE.PerspectiveCamera(
   70,
-  window.innerWidth / window.innerHeight,
+  DESIGN_WIDTH / DESIGN_HEIGHT,
   0.1,
   200
 );
@@ -40,12 +57,6 @@ const player = {
   position: new THREE.Vector3(0, 1.6, 8),
   speed: 5,
 };
-
-window.addEventListener("resize", () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
 
 // ---------- Lighting ----------
 const hemi = new THREE.HemisphereLight(0xffffff, 0x445566, 0.9);
@@ -332,9 +343,10 @@ const keys = {};
 const joystickZone = document.getElementById("joystickZone");
 const joystickBase = document.getElementById("joystickBase");
 const joystickKnob = document.getElementById("joystickKnob");
-const JOYSTICK_RADIUS = 44;
+const JOYSTICK_RADIUS_RATIO = 44 / 120; // デザイン上のjoystickBase(120px)に対する可動半径の比率
 let joystickPointerId = null;
 let joystickOrigin = { x: 0, y: 0 };
+let joystickRadius = 44;
 
 function joystickStart(e) {
   if (joystickPointerId !== null) return;
@@ -342,19 +354,25 @@ function joystickStart(e) {
   const rect = joystickBase.getBoundingClientRect();
   joystickOrigin.x = rect.left + rect.width / 2;
   joystickOrigin.y = rect.top + rect.height / 2;
+  // #viewportのscale()に関わらず正しい可動範囲になるよう、実際の表示サイズから算出する
+  joystickRadius = rect.width * JOYSTICK_RADIUS_RATIO;
   joystickMove(e);
 }
 function joystickMove(e) {
   if (e.pointerId !== joystickPointerId) return;
   let dx = e.clientX - joystickOrigin.x;
   let dy = e.clientY - joystickOrigin.y;
-  const dist = Math.min(Math.hypot(dx, dy), JOYSTICK_RADIUS);
+  const dist = Math.min(Math.hypot(dx, dy), joystickRadius);
   const angle = Math.atan2(dy, dx);
   dx = Math.cos(angle) * dist;
   dy = Math.sin(angle) * dist;
-  joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
-  moveInput.x = dx / JOYSTICK_RADIUS;
-  moveInput.y = -dy / JOYSTICK_RADIUS;
+  // ノブのtransformは#viewport内のデザイン座標系で解釈されるため、
+  // 実画面ピクセルで計算したdx/dyを現在のスケールで割って見た目のズレを補正する
+  const knobDx = dx / viewportScale;
+  const knobDy = dy / viewportScale;
+  joystickKnob.style.transform = `translate(calc(-50% + ${knobDx}px), calc(-50% + ${knobDy}px))`;
+  moveInput.x = dx / joystickRadius;
+  moveInput.y = -dy / joystickRadius;
 }
 function joystickEnd(e) {
   if (e.pointerId !== joystickPointerId) return;

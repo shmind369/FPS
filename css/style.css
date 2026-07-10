@@ -15,10 +15,29 @@ html, body {
   background: #000;
   font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
   touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/*
+ * 画面サイズを6.1インチ相当(iPhone 13/14と同じ論理解像度 390x844px)に固定した
+ * 仮想ビューポート。実機の画面サイズが違っても、JS側でこの要素にscale()を
+ * かけて相似形のまま収めるため、内部のレイアウトは常にこのサイズを基準にした
+ * 絶対ピクセル値で統一できる。
+ */
+#viewport {
+  position: relative;
+  width: 390px;
+  height: 844px;
+  flex: none;
+  overflow: hidden;
+  background: #000;
+  transform-origin: center center;
 }
 
 #game {
-  position: fixed;
+  position: absolute;
   inset: 0;
   display: block;
   width: 100%;
@@ -26,7 +45,7 @@ html, body {
 }
 
 #hud {
-  position: fixed;
+  position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 10;
@@ -34,7 +53,7 @@ html, body {
 
 #score {
   position: absolute;
-  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  top: 12px;
   left: 16px;
   color: #fff;
   font-size: 18px;
@@ -87,7 +106,7 @@ html, body {
 }
 
 #controls {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 20;
 }
@@ -96,7 +115,7 @@ html, body {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 50%;
+  width: 195px; /* 390px の半分で固定 */
   touch-action: none;
 }
 #joystickZone {
@@ -111,7 +130,7 @@ html, body {
   width: 120px;
   height: 120px;
   left: 30px;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 30px);
+  bottom: 30px;
   border-radius: 50%;
   background: rgba(255,255,255,0.12);
   border: 2px solid rgba(255,255,255,0.35);
@@ -134,7 +153,7 @@ html, body {
 #fireButton {
   position: absolute;
   right: 30px;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 40px);
+  bottom: 40px;
   width: 84px;
   height: 84px;
   border-radius: 50%;
