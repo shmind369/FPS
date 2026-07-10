@@ -17,27 +17,18 @@ document.addEventListener(
 );
 
 // ---------- Basic scene setup ----------
-// 画面サイズを6.1インチ相当(iPhone 13/14と同じ論理解像度)に固定し、
-// 実機の画面サイズが違っても#viewportをscale()で相似形のまま収める
-const DESIGN_WIDTH = 390;
+// 縦(高さ)を6.1インチ相当(iPhone 13/14と同じ論理解像度844px)に固定し、
+// 横幅は実機の画面比率に合わせて動的に算出することで、常に画面幅いっぱいに
+// 表示されるようにする(左右の黒帯なし・縦のフィット感は維持)
 const DESIGN_HEIGHT = 844;
+let designWidth = 390; // 初期値。fitViewport()で実機に合わせて更新される
 
 const viewportEl = document.getElementById("viewport");
 let viewportScale = 1;
-function fitViewport() {
-  viewportScale = Math.min(
-    window.innerWidth / DESIGN_WIDTH,
-    window.innerHeight / DESIGN_HEIGHT
-  );
-  viewportEl.style.transform = `scale(${viewportScale})`;
-}
-fitViewport();
-window.addEventListener("resize", fitViewport);
 
 const canvas = document.getElementById("game");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(DESIGN_WIDTH, DESIGN_HEIGHT);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
@@ -45,7 +36,7 @@ scene.fog = new THREE.Fog(0x87ceeb, 20, 90);
 
 const camera = new THREE.PerspectiveCamera(
   70,
-  DESIGN_WIDTH / DESIGN_HEIGHT,
+  designWidth / DESIGN_HEIGHT,
   0.1,
   200
 );
@@ -57,6 +48,22 @@ const player = {
   position: new THREE.Vector3(0, 1.6, 8),
   speed: 5,
 };
+
+function fitViewport() {
+  // 高さ844pxぴったりに収まるスケールを基準にし、横幅はそのスケールで
+  // 画面幅いっぱいになる値を逆算する(左右に黒帯が出ないようにする)
+  viewportScale = window.innerHeight / DESIGN_HEIGHT;
+  designWidth = window.innerWidth / viewportScale;
+
+  viewportEl.style.width = `${designWidth}px`;
+  viewportEl.style.transform = `scale(${viewportScale})`;
+
+  renderer.setSize(designWidth, DESIGN_HEIGHT);
+  camera.aspect = designWidth / DESIGN_HEIGHT;
+  camera.updateProjectionMatrix();
+}
+fitViewport();
+window.addEventListener("resize", fitViewport);
 
 // ---------- Lighting ----------
 const hemi = new THREE.HemisphereLight(0xffffff, 0x445566, 0.9);
