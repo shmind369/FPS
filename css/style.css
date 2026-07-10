@@ -21,14 +21,13 @@ html, body {
 }
 
 /*
- * 画面サイズを6.1インチ相当(iPhone 13/14と同じ論理解像度 390x844px)に固定した
- * 仮想ビューポート。実機の画面サイズが違っても、JS側でこの要素にscale()を
- * かけて相似形のまま収めるため、内部のレイアウトは常にこのサイズを基準にした
- * 絶対ピクセル値で統一できる。
+ * 縦(高さ)を6.1インチ相当(iPhone 13/14と同じ論理解像度 844px)に固定した
+ * 仮想ビューポート。横幅は実機の画面比率に合わせてJS側で動的に算出し、
+ * 左右に黒い帯が出ないよう常に画面幅いっぱいになるようにする。
+ * (width/transformはjs/main.jsのfitViewport()が設定する)
  */
 #viewport {
   position: relative;
-  width: 390px;
   height: 844px;
   flex: none;
   overflow: hidden;
@@ -115,7 +114,7 @@ html, body {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 195px; /* 390px の半分で固定 */
+  width: 50%;
   touch-action: none;
 }
 #joystickZone {
