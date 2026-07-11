@@ -203,8 +203,8 @@ const BUCKLE_EASE_RATE = 8; // 支点が膝の高さへ切り替わる/戻る速
 
 const SPIN_STIFFNESS = 50; // 正面に戻ろうとするバネの強さ
 const SPIN_DAMPING = 7; // ひねりを減衰させる強さ
-const SPIN_IMPULSE = 4; // 腕に当たった時に加えるY軸角速度
-const SPIN_MAX = Math.PI * 0.25; // ひねりの最大角度
+const SPIN_IMPULSE = 8; // 腕に当たった時に加えるY軸角速度
+const SPIN_MAX = Math.PI * 0.4; // ひねりの最大角度
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
