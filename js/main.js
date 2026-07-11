@@ -498,10 +498,66 @@ function hideHint() {
 const raycaster = new THREE.Raycaster();
 const center = new THREE.Vector2(0, 0);
 
+// 自機の弾(トレーサー)。当たり判定は従来通り即座のレイキャストのままで、
+// これは見た目上、命中点(外れた場合は遠方)まで飛んでいく光弾を表示するだけ
+//
+// 注意: カメラの視線軸そのものに沿って弾を飛ばすと、発射者自身の視点からは
+// 常に画面中心(クロスヘア)に重なって見えてしまい、横方向の動きが分からない
+// (視線と同じ直線上を動く点は距離が変わっても画面上では同じ位置に投影されるため)。
+// 見えない銃口がカメラの少し右下にある想定で、そこから照準点へ向けて斜めに
+// 飛ばすことで、実際に画面上を横切る軌道として見えるようにする。
+const BULLET_SPEED = 40; // m/s
+const BULLET_MAX_DISTANCE = 60; // 何にも当たらなかった場合に飛ぶ距離
+const BULLET_MUZZLE_OFFSET = new THREE.Vector3(0.28, -0.32, -0.15); // カメラ基準(右,下,前)
+// 円柱状のトレーサーは真正面に飛ぶ時に視線と重なってほぼ点にしか見えないため、
+// どの角度から見ても同じ大きさに見える球体にする
+const bulletGeo = new THREE.SphereGeometry(0.06, 8, 8);
+const bulletMat = new THREE.MeshBasicMaterial({ color: 0xfff2a0 });
+const bullets = [];
+
+function spawnBullet(origin, direction, distance) {
+  const mesh = new THREE.Mesh(bulletGeo, bulletMat);
+  mesh.position.copy(origin);
+  scene.add(mesh);
+  bullets.push({
+    mesh,
+    velocity: direction.clone().multiplyScalar(BULLET_SPEED),
+    remaining: distance,
+  });
+}
+
+function updateBullets(dt) {
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    const step = BULLET_SPEED * dt;
+    b.mesh.position.addScaledVector(b.velocity, dt);
+    b.remaining -= step;
+    if (b.remaining <= 0) {
+      scene.remove(b.mesh);
+      bullets.splice(i, 1);
+    }
+  }
+}
+
 function shoot() {
   raycaster.setFromCamera(center, camera);
   const allMeshes = targets.flatMap((t) => t.meshes);
   const hits = raycaster.intersectObjects(allMeshes);
+
+  const aimPoint =
+    hits.length > 0
+      ? hits[0].point
+      : raycaster.ray.origin
+          .clone()
+          .addScaledVector(raycaster.ray.direction, BULLET_MAX_DISTANCE);
+  const bulletOrigin = BULLET_MUZZLE_OFFSET.clone()
+    .applyQuaternion(camera.quaternion)
+    .add(camera.position);
+  const toAim = aimPoint.clone().sub(bulletOrigin);
+  const bulletDistance = toAim.length();
+  const bulletDir = toAim.normalize();
+  spawnBullet(bulletOrigin, bulletDir, bulletDistance);
+
   if (hits.length > 0) {
     const target = hits[0].object.userData.owner;
     const part = hits[0].object.userData.part;
@@ -606,6 +662,7 @@ function tick(now) {
   updateMovement(dt);
   updateCamera();
   updateTargets(dt);
+  updateBullets(dt);
 
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
