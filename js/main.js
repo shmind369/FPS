@@ -140,6 +140,14 @@ function createHumanoid(material) {
   const headMesh = new THREE.Mesh(headGeo, material);
   headMesh.position.set(0, 1.5, 0);
 
+  // どの部位に当たったか判定するためのタグ付け
+  leftLeg.mesh.userData.part = "leg";
+  rightLeg.mesh.userData.part = "leg";
+  leftArm.mesh.userData.part = "armL";
+  rightArm.mesh.userData.part = "armR";
+  torsoMesh.userData.part = "torso";
+  headMesh.userData.part = "head";
+
   return {
     parts: [
       leftLeg.pivot,
@@ -188,9 +196,15 @@ const WALK_AMPLITUDE = 0.5; // 手脚の振り角(ラジアン)
 const WALK_ENVELOPE_RATE = 6; // 歩行振幅のフェードイン/アウトの速さ
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
 
-const KNEE_HEIGHT = 0.4; // 膝のおおよその高さ。これ以下に当たると完全に転倒する
+const KNEE_HEIGHT = 0.4; // 膝のおおよその高さ。これ以下に当たると完全に転倒する(転倒時の支点にも使う)
 const KNOCKDOWN_DURATION = 2.5; // 転倒してから起き上がり始めるまでの秒数
 const KNOCKDOWN_FALL_RATE = 10; // 転倒時に倒れきるまでの速さ
+const BUCKLE_EASE_RATE = 8; // 支点が膝の高さへ切り替わる/戻る速さ
+
+const SPIN_STIFFNESS = 50; // 正面に戻ろうとするバネの強さ
+const SPIN_DAMPING = 7; // ひねりを減衰させる強さ
+const SPIN_IMPULSE = 4; // 腕に当たった時に加えるY軸角速度
+const SPIN_MAX = Math.PI * 0.25; // ひねりの最大角度
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -231,19 +245,21 @@ for (let i = 0; i < TARGET_COUNT; i++) {
     knockDir: new THREE.Vector3(0, 0, 1),
     downed: false,
     downTimer: 0,
+    buckleAmount: 0,
+    spinAngle: 0,
+    spinVelocity: 0,
   };
   for (const mesh of humanoid.meshes) mesh.userData.owner = target;
   targets.push(target);
 }
 
-function hitTarget(target, hitPoint) {
-  // 撃たれた向きと逆方向に倒れる・ノックバックするよう、プレイヤーから的への水平方向を使う
+function hitTarget(target, hitPoint, part) {
+  // ノックバックは撃たれた向きと逆方向へ、プレイヤーから的への水平方向を使う
   const away = new THREE.Vector3()
     .subVectors(target.group.position, player.position)
     .setY(0);
   if (away.lengthSq() < 0.0001) away.set(0, 0, 1);
   away.normalize();
-  target.tiltAxis.set(away.z, 0, -away.x);
   target.knockDir.copy(away);
 
   // 根本(支点)からの高さが大きいほど、テコの原理でのけ反り・ノックバックが強くなる
@@ -251,14 +267,24 @@ function hitTarget(target, hitPoint) {
   const heightFraction = clamp(localHeight / TARGET_HEIGHT, 0, 1);
 
   if (localHeight <= KNEE_HEIGHT) {
-    // 膝から下に当たった場合は足払いのように完全に転倒させる
+    // 膝から下に当たった場合は、進行方向(前向き)に膝から崩れ落ちるように転倒させる
     target.downed = true;
     target.downTimer = KNOCKDOWN_DURATION;
+    target.tiltAxis.set(Math.cos(target.heading), 0, -Math.sin(target.heading));
   } else {
+    // それ以外は撃たれた向きと逆方向にのけ反る
+    target.tiltAxis.set(away.z, 0, -away.x);
     const tiltMult =
       TILT_IMPULSE_MIN_MULT +
       (TILT_IMPULSE_MAX_MULT - TILT_IMPULSE_MIN_MULT) * heightFraction;
     target.tiltVelocity += TILT_IMPULSE * tiltMult;
+  }
+
+  // 腕に当たった場合はY軸まわりに少しひねる
+  if (part === "armL") {
+    target.spinVelocity -= SPIN_IMPULSE;
+  } else if (part === "armR") {
+    target.spinVelocity += SPIN_IMPULSE;
   }
 
   const knockMult =
@@ -273,6 +299,7 @@ function hitTarget(target, hitPoint) {
 const tmpToPlayer = new THREE.Vector3();
 const tmpHeadingQuat = new THREE.Quaternion();
 const tmpTiltQuat = new THREE.Quaternion();
+const tmpPivotOffset = new THREE.Vector3();
 
 function updateTargets(dt) {
   for (const t of targets) {
@@ -323,13 +350,29 @@ function updateTargets(dt) {
     t.knockOffset += t.knockVelocity * dt;
     t.knockOffset = clamp(t.knockOffset, -KNOCK_MAX, KNOCK_MAX);
 
-    // 進行方向を向いた上で、被弾による傾きをワールド空間で重ねる
-    tmpHeadingQuat.setFromAxisAngle(UP_AXIS, t.heading);
+    // 腕を撃たれた時のY軸まわりのひねり(正面へ戻ろうとするバネ)
+    const spinAccel = -SPIN_STIFFNESS * t.spinAngle - SPIN_DAMPING * t.spinVelocity;
+    t.spinVelocity += spinAccel * dt;
+    t.spinAngle += t.spinVelocity * dt;
+    t.spinAngle = clamp(t.spinAngle, -SPIN_MAX, SPIN_MAX);
+
+    // 転倒中は膝の高さへ支点がなめらかに移る(起き上がる時も同様に戻る)
+    t.buckleAmount +=
+      ((t.downed ? 1 : 0) - t.buckleAmount) * Math.min(1, dt * BUCKLE_EASE_RATE);
+
+    // 進行方向(+ひねり)を向いた上で、被弾による傾きをワールド空間で重ねる
+    tmpHeadingQuat.setFromAxisAngle(UP_AXIS, t.heading + t.spinAngle);
     tmpTiltQuat.setFromAxisAngle(t.tiltAxis, t.tiltAngle);
     t.group.quaternion.copy(tmpTiltQuat).multiply(tmpHeadingQuat);
+
+    // 通常は地面、転倒中は膝の高さを支点に回転しているように見せるための位置補正
+    const pivotHeight = KNEE_HEIGHT * t.buckleAmount;
+    tmpPivotOffset.set(0, -pivotHeight, 0).applyQuaternion(t.group.quaternion);
     t.group.position
       .copy(t.basePosition)
       .addScaledVector(t.knockDir, t.knockOffset);
+    t.group.position.y += pivotHeight;
+    t.group.position.add(tmpPivotOffset);
   }
 }
 
@@ -461,7 +504,8 @@ function shoot() {
   const hits = raycaster.intersectObjects(allMeshes);
   if (hits.length > 0) {
     const target = hits[0].object.userData.owner;
-    if (target) hitTarget(target, hits[0].point);
+    const part = hits[0].object.userData.part;
+    if (target) hitTarget(target, hits[0].point, part);
   }
   hideHint();
 }
