@@ -512,7 +512,13 @@ const BULLET_MUZZLE_OFFSET = new THREE.Vector3(0.28, -0.32, -0.15); // カメラ
 // 円柱状のトレーサーは真正面に飛ぶ時に視線と重なってほぼ点にしか見えないため、
 // どの角度から見ても同じ大きさに見える球体にする
 const bulletGeo = new THREE.SphereGeometry(0.06, 8, 8);
-const bulletMat = new THREE.MeshBasicMaterial({ color: 0xfff2a0 });
+const bulletMat = new THREE.MeshStandardMaterial({
+  color: 0xfff2a0,
+  metalness: 0.7,
+  roughness: 0.15,
+  emissive: 0x554400,
+  emissiveIntensity: 0.8,
+});
 const bullets = [];
 
 function spawnBullet(origin, direction, distance) {
