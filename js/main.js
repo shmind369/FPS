@@ -45,7 +45,7 @@ const player = {
   yaw: 0,
   pitch: 0,
   height: 1.6,
-  position: new THREE.Vector3(0, 1.6, 8),
+  position: new THREE.Vector3(0, 1.6, 5),
   speed: 5,
 };
 
@@ -72,11 +72,11 @@ const sun = new THREE.DirectionalLight(0xffffff, 1.2);
 sun.position.set(20, 30, 10);
 scene.add(sun);
 
-// ---------- Arena ----------
-const ARENA_SIZE = 40;
-
+// ---------- Arena(閉じたダンジョン: 部屋+通路) ----------
+// 部屋A(スタート地点)・部屋B・部屋Cを、2本の通路でつないだ閉じた構造。
+// 地面はダンジョン全体を覆う大きさの1枚板でよい(壁の外側はどこからも見えない)。
 const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE),
+  new THREE.PlaneGeometry(90, 90),
   new THREE.MeshStandardMaterial({ color: 0x556b2f })
 );
 ground.rotation.x = -Math.PI / 2;
@@ -93,14 +93,52 @@ function addObstacle(x, z, w, d, h) {
     max: new THREE.Vector3(x + w / 2, h, z + d / 2),
   });
 }
-addObstacle(6, 2, 3, 3, 2.2);
-addObstacle(-7, -4, 4, 2, 2.2);
-addObstacle(0, -10, 6, 2, 2.2);
-addObstacle(-4, 8, 2, 5, 2.2);
-addObstacle(9, -8, 2, 6, 2.2);
 
-// boundary walls (invisible-ish, just to block movement)
-const halfArena = ARENA_SIZE / 2 - 1;
+const WALL_H = 3; // 壁の高さ
+const WALL_T = 0.6; // 壁の厚み
+
+// 部屋A(中心 0,0、14x14): 北に部屋Bへの通路、東に部屋Cへの通路
+addObstacle(-4.5, -7, 5, WALL_T, WALL_H); // 北壁(西側)
+addObstacle(4.5, -7, 5, WALL_T, WALL_H); // 北壁(東側、間が通路口)
+addObstacle(7, -4.5, WALL_T, 5, WALL_H); // 東壁(北側)
+addObstacle(7, 4.5, WALL_T, 5, WALL_H); // 東壁(南側、間が通路口)
+addObstacle(0, 7, 14, WALL_T, WALL_H); // 南壁
+addObstacle(-7, 0, WALL_T, 14, WALL_H); // 西壁
+
+// 部屋B(中心 0,-28、12x12): 南に部屋Aへの通路
+addObstacle(-4, -22, 4, WALL_T, WALL_H); // 南壁(西側)
+addObstacle(4, -22, 4, WALL_T, WALL_H); // 南壁(東側、間が通路口)
+addObstacle(0, -34, 12, WALL_T, WALL_H); // 北壁
+addObstacle(-6, -28, WALL_T, 12, WALL_H); // 西壁
+addObstacle(6, -28, WALL_T, 12, WALL_H); // 東壁
+
+// 部屋C(中心 26,0、14x16): 西に部屋Aへの通路
+addObstacle(19, -5, WALL_T, 6, WALL_H); // 西壁(北側)
+addObstacle(19, 5, WALL_T, 6, WALL_H); // 西壁(南側、間が通路口)
+addObstacle(33, 0, WALL_T, 16, WALL_H); // 東壁
+addObstacle(26, -8, 14, WALL_T, WALL_H); // 北壁
+addObstacle(26, 8, 14, WALL_T, WALL_H); // 南壁
+
+// 通路A-B(南北、部屋Aの北〜部屋Bの南)の側壁
+addObstacle(-2, -14.5, WALL_T, 15, WALL_H);
+addObstacle(2, -14.5, WALL_T, 15, WALL_H);
+
+// 通路A-C(東西、部屋Aの東〜部屋Cの西)の側壁
+addObstacle(13, -2, 12, WALL_T, WALL_H);
+addObstacle(13, 2, 12, WALL_T, WALL_H);
+
+// ダンジョン全体を覆う範囲(壁での閉じ込めが主だが、念のための外側の保険境界)
+const WORLD_MIN_X = -12;
+const WORLD_MAX_X = 38;
+const WORLD_MIN_Z = -39;
+const WORLD_MAX_Z = 12;
+
+// 的の出現・徘徊範囲となる各部屋の内側(壁との余白を持たせた)領域
+const ROOMS = [
+  { cx: 0, cz: 0, halfX: 6.2, halfZ: 6.2 }, // 部屋A
+  { cx: 0, cz: -28, halfX: 5.2, halfZ: 5.2 }, // 部屋B
+  { cx: 26, cz: 0, halfX: 6.2, halfZ: 7.2 }, // 部屋C
+];
 
 // ---------- Targets (enemies) ----------
 // 根本(地面)を軸にして倒れ、起き上がり小法師のようにバネで直立に戻る人型の的
@@ -211,8 +249,9 @@ function clamp(value, min, max) {
 }
 
 function randomTargetPosition() {
-  const x = (Math.random() - 0.5) * (ARENA_SIZE - 6);
-  const z = (Math.random() - 0.5) * (ARENA_SIZE - 6);
+  const room = ROOMS[Math.floor(Math.random() * ROOMS.length)];
+  const x = room.cx + (Math.random() - 0.5) * 2 * (room.halfX - 1.2);
+  const z = room.cz + (Math.random() - 0.5) * 2 * (room.halfZ - 1.2);
   return new THREE.Vector3(x, 0, z);
 }
 
@@ -313,8 +352,14 @@ function updateTargets(dt) {
       t.heading = Math.atan2(dirX, dirZ);
       if (isMoving) {
         const step = Math.min(ENEMY_SPEED * dt, dist - ENEMY_STOP_DISTANCE);
-        t.basePosition.x += dirX * step;
-        t.basePosition.z += dirZ * step;
+        const nextX = t.basePosition.x + dirX * step;
+        const nextZ = t.basePosition.z + dirZ * step;
+        if (!collides(new THREE.Vector3(nextX, 0, t.basePosition.z))) {
+          t.basePosition.x = nextX;
+        }
+        if (!collides(new THREE.Vector3(t.basePosition.x, 0, nextZ))) {
+          t.basePosition.z = nextZ;
+        }
       }
     }
 
@@ -640,8 +685,8 @@ function updateMovement(dt) {
   move.multiplyScalar(player.speed * dt);
 
   const next = player.position.clone().add(move);
-  next.x = Math.max(-halfArena, Math.min(halfArena, next.x));
-  next.z = Math.max(-halfArena, Math.min(halfArena, next.z));
+  next.x = Math.max(WORLD_MIN_X, Math.min(WORLD_MAX_X, next.x));
+  next.z = Math.max(WORLD_MIN_Z, Math.min(WORLD_MAX_Z, next.z));
 
   if (!collides(new THREE.Vector3(next.x, 0, player.position.z))) {
     player.position.x = next.x;
