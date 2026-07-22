@@ -127,6 +127,67 @@ addObstacle(2, -14.5, WALL_T, 15, WALL_H);
 addObstacle(13, -2, 12, WALL_T, WALL_H);
 addObstacle(13, 2, 12, WALL_T, WALL_H);
 
+// 鉄格子ゲート(部屋A→部屋Bの通路入口を塞ぐ、視覚的な障害物かつ衝突判定あり)
+const gateMat = new THREE.MeshStandardMaterial({
+  color: 0x2b2b2b,
+  metalness: 0.85,
+  roughness: 0.35,
+});
+
+function createIronGate(x, z, width, height, rotationY) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = rotationY;
+  scene.add(group);
+
+  const frameT = 0.12;
+
+  const lintel = new THREE.Mesh(
+    new THREE.BoxGeometry(width, frameT, frameT),
+    gateMat
+  );
+  lintel.position.set(0, height - frameT / 2, 0);
+  group.add(lintel);
+
+  const sill = new THREE.Mesh(
+    new THREE.BoxGeometry(width, frameT, frameT),
+    gateMat
+  );
+  sill.position.set(0, frameT / 2, 0);
+  group.add(sill);
+
+  const postGeo = new THREE.BoxGeometry(frameT, height, frameT);
+  const leftPost = new THREE.Mesh(postGeo, gateMat);
+  leftPost.position.set(-width / 2 + frameT / 2, height / 2, 0);
+  group.add(leftPost);
+  const rightPost = new THREE.Mesh(postGeo, gateMat);
+  rightPost.position.set(width / 2 - frameT / 2, height / 2, 0);
+  group.add(rightPost);
+
+  const BAR_COUNT = 7;
+  const barGeo = new THREE.BoxGeometry(0.06, height - frameT * 2, 0.06);
+  for (let i = 0; i < BAR_COUNT; i++) {
+    const bar = new THREE.Mesh(barGeo, gateMat);
+    const bx = -width / 2 + (width / (BAR_COUNT - 1)) * i;
+    bar.position.set(bx, height / 2, 0);
+    group.add(bar);
+  }
+
+  const crossGeo = new THREE.BoxGeometry(width - frameT * 2, 0.06, 0.06);
+  [height * 0.35, height * 0.68].forEach((y) => {
+    const cross = new THREE.Mesh(crossGeo, gateMat);
+    cross.position.set(0, y, 0);
+    group.add(cross);
+  });
+
+  obstacles.push({
+    min: new THREE.Vector3(x - width / 2, 0, z - frameT),
+    max: new THREE.Vector3(x + width / 2, height, z + frameT),
+  });
+}
+
+createIronGate(0, -7, 3.6, WALL_H, 0);
+
 // ダンジョン全体を覆う範囲(壁での閉じ込めが主だが、念のための外側の保険境界)
 const WORLD_MIN_X = -12;
 const WORLD_MAX_X = 38;
@@ -210,7 +271,7 @@ function createHumanoid(material) {
   };
 }
 
-const TARGET_COUNT = 8;
+const TARGET_COUNT = 0; // 一旦敵の表示をオフ(背景確認用。戻す時はこの数値を8などに戻す)
 const targets = [];
 
 const TILT_STIFFNESS = 60; // 直立に戻ろうとするバネの強さ
